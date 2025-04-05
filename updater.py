@@ -21,6 +21,13 @@ STYLE_ERROR = QColor(234, 67, 53)    # Red for error
 STYLE_TEXT = QColor(33, 33, 33)      # Dark text
 STYLE_SECONDARY_TEXT = QColor(95, 99, 104)  # Secondary text
 
+try:
+    from ctypes import windll  # Only exists on Windows.
+    myappid = 'railways.digital_kalva_carshed.traction_motor.1.0'
+    windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+except ImportError:
+    pass
+
 class StyleHelper:
     @staticmethod
     def setup_application_style(app):
@@ -185,7 +192,7 @@ class UpdaterApp(QMainWindow):
     
     def show_splash_screen(self):
         # Use a default splash image if none exists
-        splash_path = "src/static/images/splash.jpg"
+        splash_path = "src/static/images/splash_screen.jpg"
         if not os.path.exists(splash_path):
             # Create a simple colored splash with icon
             splash_pixmap = QPixmap(400, 300)

@@ -1,2 +1,4 @@
 src/
 logo.ico
+build/
+dist/
