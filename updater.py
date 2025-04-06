@@ -32,13 +32,14 @@ class StyleHelper:
     @staticmethod
     def setup_application_style(app):
         # Add custom font
-        font_id = QFontDatabase.addApplicationFont("src/static/fonts/Roboto.ttf")
+        font_path = os.path.join(get_app_dir(), "src/static/fonts/Roboto.ttf")
+        font_id = QFontDatabase.addApplicationFont(font_path)
         if font_id != -1:
             font_family = QFontDatabase.applicationFontFamilies(font_id)[0]
             custom_font = QFont(font_family)
             app.setFont(custom_font)
         else:
-            print("Font failed to load, using system default")
+            print(f"Font failed to load from {font_path}, using system default")
             
         # Set application palette
         palette = QPalette()
@@ -100,6 +101,15 @@ class StyleHelper:
             }
         """)
 
+def get_app_dir():
+    """Get the application directory where the exe or script is located"""
+    if getattr(sys, 'frozen', False):
+        # Running as compiled executable
+        return os.path.dirname(sys.executable)
+    else:
+        # Running as script
+        return os.path.dirname(os.path.abspath(__file__))
+
 class AnimatedButton(QPushButton):
     def __init__(self, text="", parent=None):
         super().__init__(text, parent)
@@ -149,6 +159,7 @@ class DownloadThread(QThread):
             total_size = int(response.headers.get('content-length', 0))
             
             # Create temporary file
+            os.makedirs(os.path.dirname(self.download_path), exist_ok=True)
             with open(self.download_path, 'wb') as f:
                 downloaded = 0
                 for chunk in response.iter_content(chunk_size=8192):
@@ -172,9 +183,13 @@ class UpdaterApp(QMainWindow):
         self.setWindowTitle("Application Updater")
         self.setMinimumSize(600, 500)
         
+        # Initialize application directory
+        self.app_dir = get_app_dir()
+        print(f"Application directory: {self.app_dir}")
+        
         # Initialize variables
-        self.download_thread = None
-        self.temp_dir = tempfile.mkdtemp()
+        self.temp_dir = os.path.join(self.app_dir, "temp_update")
+        os.makedirs(self.temp_dir, exist_ok=True)
         self.download_path = os.path.join(self.temp_dir, "update.zip")
         
         # Create splash screen
@@ -192,7 +207,7 @@ class UpdaterApp(QMainWindow):
     
     def show_splash_screen(self):
         # Use a default splash image if none exists
-        splash_path = "src/static/images/splash_screen.jpg"
+        splash_path = os.path.join(self.app_dir, "src/static/images/splash_screen.jpg")
         if not os.path.exists(splash_path):
             # Create a simple colored splash with icon
             splash_pixmap = QPixmap(400, 300)
@@ -206,8 +221,9 @@ class UpdaterApp(QMainWindow):
     
     def setup_ui(self):
         # Set window icon
-        if os.path.exists("logo.ico"):
-            self.setWindowIcon(QIcon("logo.ico"))
+        icon_path = os.path.join(self.app_dir, "logo.ico")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         
         # Create central widget
         central_widget = QWidget()
@@ -219,9 +235,10 @@ class UpdaterApp(QMainWindow):
         header_layout = QHBoxLayout()
         
         # Logo (if available)
-        if os.path.exists("src/static/images/logo.png"):
+        logo_path = os.path.join(self.app_dir, "src/static/images/logo.png")
+        if os.path.exists(logo_path):
             logo_label = QLabel()
-            logo_pixmap = QPixmap("src/static/images/logo.png").scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            logo_pixmap = QPixmap(logo_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             logo_label.setPixmap(logo_pixmap)
             header_layout.addWidget(logo_label)
         
@@ -330,6 +347,7 @@ class UpdaterApp(QMainWindow):
     
     def load_config(self):
         """Load configuration from JSON file"""
+        config_path = os.path.join(self.app_dir, CONFIG_FILE)
         default_config = {
             "app_name": "YourApp",
             "current_version": "1.0.0",
@@ -338,12 +356,12 @@ class UpdaterApp(QMainWindow):
         }
         
         try:
-            if os.path.exists(CONFIG_FILE):
-                with open(CONFIG_FILE, 'r') as f:
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
                     return json.load(f)
             else:
                 # Create default config if not exists
-                with open(CONFIG_FILE, 'w') as f:
+                with open(config_path, 'w') as f:
                     json.dump(default_config, f, indent=4)
                 return default_config
         except Exception as e:
@@ -466,19 +484,23 @@ class UpdaterApp(QMainWindow):
     def install_update(self, zip_path):
         """Extract the update and replace files"""
         try:
-            app_dir = os.path.dirname(os.path.abspath(__file__))
             extract_dir = os.path.join(self.temp_dir, "extracted")
             
-            # Create extraction directory
-            if not os.path.exists(extract_dir):
-                os.makedirs(extract_dir)
+            # Clear and create extraction directory
+            if os.path.exists(extract_dir):
+                shutil.rmtree(extract_dir)
+            os.makedirs(extract_dir)
+            
+            self.set_status("Extracting update files...", "info")
             
             # Extract the zip file
             with ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_dir)
             
+            self.set_status("Installing updated files...", "info")
+            
             # Update the app directory with new files
-            self.copy_with_overwrite(extract_dir, app_dir)
+            self.copy_with_overwrite(extract_dir, self.app_dir)
             
             # Update the configuration with new version
             try:
@@ -489,7 +511,8 @@ class UpdaterApp(QMainWindow):
                         self.config["current_version"] = version_info.get("version", self.config["current_version"])
                 
                 # Save updated config
-                with open(CONFIG_FILE, 'w') as f:
+                config_path = os.path.join(self.app_dir, CONFIG_FILE)
+                with open(config_path, 'w') as f:
                     json.dump(self.config, f, indent=4)
             except Exception as e:
                 print(f"Error updating version: {str(e)}")
@@ -536,22 +559,29 @@ class UpdaterApp(QMainWindow):
         # Clean up temporary directory
         try:
             shutil.rmtree(self.temp_dir)
-        except:
-            pass
+        except Exception as e:
+            print(f"Error cleaning up temp dir: {str(e)}")
         event.accept()
 
 def main():
     app = QApplication(sys.argv)
     
+    # Get application directory and create necessary folders
+    app_dir = get_app_dir()
+    os.makedirs(os.path.join(app_dir, "src/static/fonts"), exist_ok=True)
+    os.makedirs(os.path.join(app_dir, "src/static/images"), exist_ok=True)
+    
     # Set application style
     StyleHelper.setup_application_style(app)
-    
-    # Create folders if they don't exist
-    os.makedirs("src/static/fonts", exist_ok=True)
     
     window = UpdaterApp()
     window.setFixedHeight(550)
     window.setFixedWidth(600)
+
+    # Set window icon
+    icon_path = os.path.join(app_dir, "logo.ico")
+    window.setWindowIcon(QIcon(icon_path))
+
     window.show()
     sys.exit(app.exec())
 
